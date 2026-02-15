@@ -143,21 +143,23 @@ class WorldProtectionListener(
     fun onEntityBlockForm(event: EntityBlockFormEvent) {
         val entity = event.entity
         val chunk = event.block.chunk
-        registry.getAt(chunk) ?: return
+        val claim = registry.getAt(chunk) ?: return
 
-        when (entity) {
-            is Player -> {
-                if (!protection.canBypass(entity, chunk)) {
+        if (!claim.allowBlockBreak) {
+            when (entity) {
+                is Player -> {
+                    if (!protection.canBypass(entity, chunk)) {
+                        event.isCancelled = true
+                    }
+                }
+                is Snowman, is ArmorStand -> {
+                    if (!protection.isOrigin(entity, chunk)) {
+                        event.isCancelled = true
+                    }
+                }
+                else -> {
                     event.isCancelled = true
                 }
-            }
-            is Snowman, is ArmorStand -> {
-                if (!protection.isOrigin(entity, chunk)) {
-                    event.isCancelled = true
-                }
-            }
-            else -> {
-                event.isCancelled = true
             }
         }
     }
