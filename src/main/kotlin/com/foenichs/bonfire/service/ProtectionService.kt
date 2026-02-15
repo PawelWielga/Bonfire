@@ -30,6 +30,14 @@ class ProtectionService(private val registry: ClaimRegistry) {
     }
 
     /**
+     * Checks if the entity has a bonfire_origin_{claim.id} tag for the given chunk's claim
+     */
+    fun isOrigin(entity: Entity?, chunk: Chunk): Boolean {
+        val claim = registry.getAt(chunk) ?: return false
+        return entity?.scoreboardTags?.contains("bonfire_origin_${claim.id}") == true
+    }
+
+    /**
      * Checks if a player is the owner of a tamed entity
      */
     fun ownsEntity(player: Player, entity: Entity): Boolean {

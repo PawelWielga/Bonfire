@@ -1,8 +1,12 @@
 package com.foenichs.bonfire.listener.protection
 
 import com.foenichs.bonfire.service.ProtectionService
+import com.foenichs.bonfire.storage.ClaimRegistry
 import org.bukkit.Material
 import org.bukkit.block.data.Directional
+import org.bukkit.entity.ArmorStand
+import org.bukkit.entity.Player
+import org.bukkit.entity.Snowman
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -11,9 +15,12 @@ import org.bukkit.event.block.BlockDispenseEvent
 import org.bukkit.event.block.BlockFertilizeEvent
 import org.bukkit.event.block.BlockFromToEvent
 import org.bukkit.event.block.BlockSpreadEvent
+import org.bukkit.event.block.EntityBlockFormEvent
+import org.bukkit.event.entity.EntitySpawnEvent
 import org.bukkit.event.world.StructureGrowEvent
 
 class WorldProtectionListener(
+    private val registry: ClaimRegistry,
     private val protection: ProtectionService
 ) : Listener {
 
@@ -115,6 +122,43 @@ class WorldProtectionListener(
 
         if (!protection.isWorldActionAllowed(fromChunk, toChunk) && !protection.checkAllowBlockBreak(toChunk)) {
             event.isCancelled = true
+        }
+    }
+
+    /**
+     * Tags Snowman and ArmorStand when they spawn inside a claim.
+     * This allows entities created inside a claim to form blocks within that claim.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onEntitySpawn(event: EntitySpawnEvent) {
+        if (event.entity !is Snowman && event.entity !is ArmorStand) return
+        val claim = registry.getAt(event.location.chunk) ?: return
+        event.entity.addScoreboardTag("bonfire_origin_${claim.id}")
+    }
+
+    /**
+     * Entities forming blocks, e.g. using the frost walker enchantment
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    fun onEntityBlockForm(event: EntityBlockFormEvent) {
+        val entity = event.entity
+        val chunk = event.block.chunk
+        registry.getAt(chunk) ?: return
+
+        when (entity) {
+            is Player -> {
+                if (!protection.canBypass(entity, chunk)) {
+                    event.isCancelled = true
+                }
+            }
+            is Snowman, is ArmorStand -> {
+                if (!protection.isOrigin(entity, chunk)) {
+                    event.isCancelled = true
+                }
+            }
+            else -> {
+                event.isCancelled = true
+            }
         }
     }
 }

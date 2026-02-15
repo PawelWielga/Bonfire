@@ -49,7 +49,7 @@ class ExplosionProtectionListener(
             }
 
             // TNT can destroy blocks in the claim it was created in
-            if (source is TNTPrimed && source.scoreboardTags.contains("bonfire_origin_${claim.id}")) {
+            if (source is TNTPrimed && protection.isOrigin(source, block.chunk)) {
                 continue
             }
 
