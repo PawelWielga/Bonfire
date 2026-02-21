@@ -28,7 +28,7 @@ class PistonProtectionListener(
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     fun onPistonRetract(event: BlockPistonRetractEvent) {
-        if (isMovementIllegal(event.block, event.blocks, event.direction.oppositeFace)) {
+        if (isMovementIllegal(event.block, event.blocks, event.direction)) {
             event.isCancelled = true
         }
     }
