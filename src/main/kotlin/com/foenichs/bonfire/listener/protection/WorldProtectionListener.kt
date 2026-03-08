@@ -1,5 +1,6 @@
 package com.foenichs.bonfire.listener.protection
 
+import com.destroystokyo.paper.event.entity.PlayerNaturallySpawnCreaturesEvent
 import com.foenichs.bonfire.service.ProtectionService
 import com.foenichs.bonfire.storage.ClaimRegistry
 import org.bukkit.Material
@@ -160,6 +161,25 @@ class WorldProtectionListener(
                 else -> {
                     event.isCancelled = true
                 }
+            }
+        }
+    }
+
+    /**
+     * Unauthorized players spawning mobs in claims
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    fun onPlayerNaturallySpawnCreatures(event: PlayerNaturallySpawnCreaturesEvent) {
+        val player = event.player
+        val chunk = player.location.chunk
+        val claim = registry.getAt(chunk) ?: return
+
+        if (
+            claim.allowEntityInteract == "false" ||
+            claim.allowEntityInteract == "onlyMounts"
+        ) {
+            if (!protection.canBypass(player, chunk)) {
+                event.isCancelled = true
             }
         }
     }
