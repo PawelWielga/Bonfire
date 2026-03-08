@@ -13,6 +13,7 @@ import org.bukkit.event.entity.EntityDamageEvent.DamageCause
 import org.bukkit.event.entity.EntityPlaceEvent
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent
 import org.bukkit.event.hanging.HangingBreakByEntityEvent
+import org.bukkit.event.player.PlayerEggThrowEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.vehicle.VehicleDamageEvent
@@ -201,5 +202,25 @@ class EntityProtectionListener(
         if (player != null && protection.canBypass(player, chunk)) return false
         val claim = registry.getAt(chunk) ?: return false
         return claim.allowEntityInteract == "false" || claim.allowEntityInteract == "onlyMounts"
+    }
+
+    /**
+     * Eggs spawning chickens
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    fun onPlayerEggThrow(event: PlayerEggThrowEvent) {
+        val player = event.player
+        val chunk = event.egg.location.chunk
+        val claim = registry.getAt(chunk) ?: return
+
+        if (
+            claim.allowEntityInteract == "false" ||
+            claim.allowEntityInteract == "onlyMounts"
+        ) {
+            if (!protection.canBypass(player, chunk)) {
+                event.isHatching = false
+                event.numHatches = 0
+            }
+        }
     }
 }
