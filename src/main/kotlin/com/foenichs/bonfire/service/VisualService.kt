@@ -20,6 +20,7 @@ class VisualService(
 ) {
     private val attachments = mutableMapOf<UUID, PermissionAttachment>()
     private val lastRuleStates = mutableMapOf<UUID, RuleState?>()
+    private val entityException = mutableSetOf<UUID>()
 
     /**
      * Data class to track the state of claim rules for command refreshing
@@ -37,6 +38,22 @@ class VisualService(
             team.setOption(Team.Option.COLLISION_RULE, Team.OptionStatus.NEVER)
         }
         team
+    }
+
+    /**
+     * Adds the player to the entity exception set, resetting ENTITY_INTERACTION_RANGE temporarily.
+     */
+    fun setEntityException(player: Player) {
+        entityException.add(player.uniqueId)
+        updateValues(player)
+    }
+
+    /**
+     * Removes the player from the entity exception set, restoring the restriction.
+     */
+    fun clearEntityException(player: Player) {
+        entityException.remove(player.uniqueId)
+        updateValues(player)
     }
 
     /**
@@ -66,18 +83,26 @@ class VisualService(
             resetAttribute(player, Attribute.BLOCK_INTERACTION_RANGE)
         }
 
-        // Apply entity interaction logic
+        // Apply entity interaction logic respecting entityException
         val entityRule = claim.allowEntityInteract
         when (entityRule) {
             "false" -> {
                 dropNearbyAggro(player)
-                player.getAttribute(Attribute.ENTITY_INTERACTION_RANGE)?.baseValue = 0.0
+                if (entityException.contains(player.uniqueId)) {
+                    resetAttribute(player, Attribute.ENTITY_INTERACTION_RANGE)
+                } else {
+                    player.getAttribute(Attribute.ENTITY_INTERACTION_RANGE)?.baseValue = 0.0
+                }
                 if (!noCollideTeam.hasEntry(player.name)) noCollideTeam.addEntry(player.name)
             }
 
             "onlyMounts" -> {
                 dropNearbyAggro(player)
-                resetAttribute(player, Attribute.ENTITY_INTERACTION_RANGE)
+                if (entityException.contains(player.uniqueId)) {
+                    resetAttribute(player, Attribute.ENTITY_INTERACTION_RANGE)
+                } else {
+                    player.getAttribute(Attribute.ENTITY_INTERACTION_RANGE)?.baseValue = 0.0
+                }
                 if (!noCollideTeam.hasEntry(player.name)) noCollideTeam.addEntry(player.name)
             }
 
@@ -130,6 +155,7 @@ class VisualService(
     fun removeAttachment(player: Player) {
         attachments.remove(player.uniqueId)?.remove()
         lastRuleStates.remove(player.uniqueId)
+        entityException.remove(player.uniqueId)
     }
 
     /**

@@ -2,6 +2,7 @@ package com.foenichs.bonfire.listener.protection
 
 import com.destroystokyo.paper.event.entity.EntityKnockbackByEntityEvent
 import com.foenichs.bonfire.service.ProtectionService
+import com.foenichs.bonfire.service.VisualService
 import com.foenichs.bonfire.storage.ClaimRegistry
 import org.bukkit.entity.*
 import org.bukkit.event.Cancellable
@@ -16,13 +17,54 @@ import org.bukkit.event.hanging.HangingBreakByEntityEvent
 import org.bukkit.event.player.PlayerEggThrowEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
+import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.vehicle.VehicleDamageEvent
 import org.bukkit.event.vehicle.VehicleDestroyEvent
 
 class EntityProtectionListener(
     private val registry: ClaimRegistry,
-    private val protection: ProtectionService
+    private val protection: ProtectionService,
+    private val visualService: VisualService
 ) : Listener {
+
+    /**
+     * Apply attribute exceptions
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onPlayerMove(event: PlayerMoveEvent) {
+        val player = event.player
+        val chunk = player.location.chunk
+        val claim = registry.getAt(chunk) ?: run {
+            visualService.clearEntityException(player)
+            return
+        }
+        if (protection.canBypass(player, chunk)) {
+            visualService.clearEntityException(player)
+            return
+        }
+
+        val allowEntity = claim.allowEntityInteract
+        if (allowEntity != "false" && allowEntity != "onlyMounts") {
+            visualService.clearEntityException(player)
+            return
+        }
+
+        val target = player.getTargetEntity(5)
+        val isPet = target != null && protection.ownsEntity(player, target)
+        val isMountOrVehicle = target is Vehicle || target is Steerable
+
+        val shouldApply = when (allowEntity) {
+            "false" -> isPet
+            "onlyMounts" -> isPet || isMountOrVehicle
+            else -> false
+        }
+
+        if (shouldApply) {
+            visualService.setEntityException(player)
+        } else {
+            visualService.clearEntityException(player)
+        }
+    }
 
     /**
      * Mobs targeting players
