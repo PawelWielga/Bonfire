@@ -3,6 +3,7 @@ package com.foenichs.bonfire.listener.protection
 import com.foenichs.bonfire.service.ProtectionService
 import com.foenichs.bonfire.storage.ClaimRegistry
 import io.papermc.paper.event.block.VaultChangeStateEvent
+import org.bukkit.Material
 import org.bukkit.entity.Player
 import org.bukkit.event.Event
 import org.bukkit.event.EventHandler
@@ -29,6 +30,16 @@ class InteractProtectionListener(
             if (protection.canBypass(player, block.chunk)) return
 
             val claim = registry.getAt(block.chunk) ?: return
+
+            if (
+                event.action == Action.PHYSICAL &&
+                (block.type == Material.FARMLAND || block.type == Material.TURTLE_EGG) &&
+                !claim.allowBlockBreak
+            ) {
+                event.setUseInteractedBlock(Event.Result.DENY)
+                event.isCancelled = true
+                return
+            }
 
             if (!claim.allowBlockInteract) {
                 val itemInHand = event.item
