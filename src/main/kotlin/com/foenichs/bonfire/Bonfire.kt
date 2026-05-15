@@ -64,7 +64,7 @@ class Bonfire : JavaPlugin() {
 
         // Rule Enforcement
         pluginManager.registerEvents(BlockProtectionListener(registry, protectionService), this)
-        pluginManager.registerEvents(WorldProtectionListener(registry, protectionService), this)
+        pluginManager.registerEvents(WorldProtectionListener(this, registry, protectionService), this)
         pluginManager.registerEvents(PistonProtectionListener(protectionService), this)
         pluginManager.registerEvents(ExplosionProtectionListener(registry, protectionService), this)
         pluginManager.registerEvents(InteractProtectionListener(registry, protectionService), this)

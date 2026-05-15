@@ -1,11 +1,14 @@
 package com.foenichs.bonfire.listener.protection
 
 import com.destroystokyo.paper.event.entity.PlayerNaturallySpawnCreaturesEvent
+import com.foenichs.bonfire.Bonfire
 import com.foenichs.bonfire.service.ProtectionService
 import com.foenichs.bonfire.storage.ClaimRegistry
+import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.block.data.Directional
 import org.bukkit.entity.ArmorStand
+import org.bukkit.entity.FallingBlock
 import org.bukkit.entity.Player
 import org.bukkit.entity.Snowman
 import org.bukkit.event.EventHandler
@@ -17,13 +20,35 @@ import org.bukkit.event.block.BlockFertilizeEvent
 import org.bukkit.event.block.BlockFromToEvent
 import org.bukkit.event.block.BlockSpreadEvent
 import org.bukkit.event.block.EntityBlockFormEvent
+import org.bukkit.event.entity.EntityChangeBlockEvent
 import org.bukkit.event.entity.EntitySpawnEvent
 import org.bukkit.event.world.StructureGrowEvent
+import org.bukkit.inventory.ItemStack
 
 class WorldProtectionListener(
+    private val plugin: Bonfire,
     private val registry: ClaimRegistry,
     private val protection: ProtectionService
 ) : Listener {
+
+    init {
+        // Handle falling blocks crossing claim borders
+        Bukkit.getScheduler().runTaskTimer(plugin, Runnable {
+            Bukkit.getWorlds().forEach { world ->
+                world.getEntitiesByClass(FallingBlock::class.java).forEach { entity ->
+                    if (!entity.isValid || entity.isOnGround) return@forEach
+
+                    val chunk = entity.location.chunk
+                    val claim = registry.getAt(chunk) ?: return@forEach
+
+                    if (!claim.allowBlockBreak && !protection.isOrigin(entity, chunk)) {
+                        entity.world.dropItemNaturally(entity.location, ItemStack(entity.blockData.material))
+                        entity.remove()
+                    }
+                }
+            }
+        }, 1L, 1L)
+    }
 
     /**
      * Liquids flowing into claims
@@ -127,14 +152,17 @@ class WorldProtectionListener(
     }
 
     /**
-     * Tags Snowman and ArmorStand when they spawn inside a claim.
-     * This allows entities created inside a claim to form blocks within that claim.
+     * Tags Snowman, ArmorStand and FallingBlock when they spawn inside a claim.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onEntitySpawn(event: EntitySpawnEvent) {
-        if (event.entity !is Snowman && event.entity !is ArmorStand) return
-        val claim = registry.getAt(event.location.chunk) ?: return
-        event.entity.addScoreboardTag("bonfire_origin_${claim.id}")
+        val entity = event.entity
+        if (entity !is Snowman && entity !is ArmorStand && entity !is FallingBlock) return
+
+        val claim = registry.getAt(event.location.chunk)
+        if (claim != null) {
+            entity.addScoreboardTag("bonfire_origin_${claim.id}")
+        }
     }
 
     /**
@@ -162,6 +190,25 @@ class WorldProtectionListener(
                     event.isCancelled = true
                 }
             }
+        }
+    }
+
+    /**
+     * Drop falling blocks when entering claims they don't originate from.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    fun onEntityChangeBlock(event: EntityChangeBlockEvent) {
+        val entity = event.entity
+        if (entity !is FallingBlock) return
+        if (event.to == Material.AIR) return
+
+        val chunk = event.block.chunk
+        val claim = registry.getAt(chunk) ?: return
+
+        if (!claim.allowBlockBreak && !protection.isOrigin(entity, chunk)) {
+            event.isCancelled = true
+            entity.world.dropItemNaturally(entity.location, ItemStack(entity.blockData.material))
+            entity.remove()
         }
     }
 
