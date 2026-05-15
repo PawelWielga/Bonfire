@@ -68,7 +68,7 @@ class Bonfire : JavaPlugin() {
         pluginManager.registerEvents(PistonProtectionListener(protectionService), this)
         pluginManager.registerEvents(ExplosionProtectionListener(registry, protectionService), this)
         pluginManager.registerEvents(InteractProtectionListener(registry, protectionService), this)
-        pluginManager.registerEvents(EntityProtectionListener(registry, protectionService, visualService), this)
+        pluginManager.registerEvents(EntityProtectionListener(this, registry, protectionService, visualService), this)
 
         // bStats
         val pluginId = 28932

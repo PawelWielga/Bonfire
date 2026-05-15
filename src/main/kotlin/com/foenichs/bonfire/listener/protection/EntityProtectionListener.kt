@@ -1,9 +1,12 @@
 package com.foenichs.bonfire.listener.protection
 
 import com.destroystokyo.paper.event.entity.EntityKnockbackByEntityEvent
+import com.foenichs.bonfire.Bonfire
 import com.foenichs.bonfire.service.ProtectionService
 import com.foenichs.bonfire.service.VisualService
 import com.foenichs.bonfire.storage.ClaimRegistry
+import org.bukkit.Bukkit
+import org.bukkit.Material
 import org.bukkit.entity.*
 import org.bukkit.event.Cancellable
 import org.bukkit.event.EventHandler
@@ -20,8 +23,11 @@ import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.vehicle.VehicleDamageEvent
 import org.bukkit.event.vehicle.VehicleDestroyEvent
+import org.bukkit.event.vehicle.VehicleExitEvent
+import org.bukkit.inventory.ItemStack
 
 class EntityProtectionListener(
+    private val plugin: Bonfire,
     private val registry: ClaimRegistry,
     private val protection: ProtectionService,
     private val visualService: VisualService
@@ -244,6 +250,37 @@ class EntityProtectionListener(
         if (player != null && protection.canBypass(player, chunk)) return false
         val claim = registry.getAt(chunk) ?: return false
         return claim.allowEntityInteract == "false" || claim.allowEntityInteract == "onlyMounts"
+    }
+
+    /**
+     * Drop vehicles when exiting in claims they don't originate from
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onVehicleExit(event: VehicleExitEvent) {
+        val vehicle = event.vehicle
+        val player = event.exited as? Player ?: return
+        val chunk = vehicle.location.chunk
+        val claim = registry.getAt(chunk) ?: return
+
+        if (protection.canBypass(player, chunk)) return
+
+        if (claim.allowEntityInteract != "true") {
+            if (!protection.isOrigin(vehicle, chunk)) {
+                val material = when (vehicle) {
+                    is Boat -> vehicle.boatMaterial
+                    is Minecart -> Material.MINECART
+                    else -> return
+                }
+
+                // Delay removal to properly finish vanilla dismount
+                Bukkit.getScheduler().runTask(plugin, Runnable {
+                    if (vehicle.isValid) {
+                        vehicle.world.dropItemNaturally(vehicle.location, ItemStack(material))
+                        vehicle.remove()
+                    }
+                })
+            }
+        }
     }
 
     /**

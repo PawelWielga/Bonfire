@@ -7,32 +7,26 @@ import com.foenichs.bonfire.storage.ClaimRegistry
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.block.data.Directional
-import org.bukkit.entity.ArmorStand
-import org.bukkit.entity.FallingBlock
-import org.bukkit.entity.Player
-import org.bukkit.entity.Snowman
+import org.bukkit.entity.*
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
-import org.bukkit.event.block.BlockBurnEvent
-import org.bukkit.event.block.BlockDispenseEvent
-import org.bukkit.event.block.BlockFertilizeEvent
-import org.bukkit.event.block.BlockFromToEvent
-import org.bukkit.event.block.BlockSpreadEvent
-import org.bukkit.event.block.EntityBlockFormEvent
+import org.bukkit.event.block.*
 import org.bukkit.event.entity.EntityChangeBlockEvent
 import org.bukkit.event.entity.EntitySpawnEvent
+import org.bukkit.event.vehicle.VehicleCreateEvent
+import org.bukkit.event.vehicle.VehicleMoveEvent
 import org.bukkit.event.world.StructureGrowEvent
 import org.bukkit.inventory.ItemStack
 
 class WorldProtectionListener(
-    private val plugin: Bonfire,
+    plugin: Bonfire,
     private val registry: ClaimRegistry,
     private val protection: ProtectionService
 ) : Listener {
 
     init {
-        // Handle falling blocks crossing claim borders
+        // Global task to handle falling blocks crossing claim borders
         Bukkit.getScheduler().runTaskTimer(plugin, Runnable {
             Bukkit.getWorlds().forEach { world ->
                 world.getEntitiesByClass(FallingBlock::class.java).forEach { entity ->
@@ -48,6 +42,30 @@ class WorldProtectionListener(
                 }
             }
         }, 1L, 1L)
+    }
+
+    /**
+     * Prevent empty boats/minecarts from entering claims
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    fun onVehicleMove(event: VehicleMoveEvent) {
+        val vehicle = event.vehicle
+        if (vehicle.passengers.isNotEmpty()) return
+
+        val from = event.from.chunk
+        val to = event.to.chunk
+        if (from == to) return
+
+        val claim = registry.getAt(to) ?: return
+        if (claim.allowEntityInteract != "true" && !protection.isOrigin(vehicle, to)) {
+            val material = when (vehicle) {
+                is Boat -> vehicle.boatMaterial
+                is Minecart -> Material.MINECART
+                else -> return
+            }
+            vehicle.world.dropItemNaturally(vehicle.location, ItemStack(material))
+            vehicle.remove()
+        }
     }
 
     /**
@@ -152,7 +170,7 @@ class WorldProtectionListener(
     }
 
     /**
-     * Tags Snowman, ArmorStand and FallingBlock when they spawn inside a claim.
+     * Tags Snowman, ArmorStand and FallingBlock when they spawn inside a claim
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onEntitySpawn(event: EntitySpawnEvent) {
@@ -163,6 +181,18 @@ class WorldProtectionListener(
         if (claim != null) {
             entity.addScoreboardTag("bonfire_origin_${claim.id}")
         }
+    }
+
+    /**
+     * Specific handler for tagging boats and minecarts when they are created
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onVehicleCreate(event: VehicleCreateEvent) {
+        val vehicle = event.vehicle
+        if (vehicle !is Boat && vehicle !is Minecart) return
+
+        val claim = registry.getAt(vehicle.location.chunk) ?: return
+        vehicle.addScoreboardTag("bonfire_origin_${claim.id}")
     }
 
     /**
