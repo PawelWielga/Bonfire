@@ -73,12 +73,11 @@ class ChunkCommand(
                     .then(
                         Commands.argument("target", StringArgumentType.word()).suggests { ctx, b ->
                             val p = ctx.source.sender as Player
-                            val c = registry.getAt(p.location.chunk)
                             val input = b.remaining.lowercase()
 
                             Bukkit.getOfflinePlayers().forEach { o ->
                                 val name = o.name
-                                if (name != null && name.lowercase().startsWith(input) && o.uniqueId != p.uniqueId && c != null && !c.trustedAlways.contains(o.uniqueId) && !c.trustedOnline.contains(o.uniqueId)) {
+                                if (name != null && name.lowercase().startsWith(input) && o.uniqueId != p.uniqueId) {
                                     b.suggest(name)
                                 }
                             }

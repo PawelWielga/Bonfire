@@ -298,14 +298,22 @@ class ClaimService(
             msg.send(p, Component.text().append(Component.text("This player wasn't found. ")).append(Component.text("They have to join once before they can be added to claims.", NamedTextColor.GRAY)).build())
             return
         }
-        if (c.trustedAlways.contains(off.uniqueId) || c.trustedOnline.contains(off.uniqueId)) {
-            msg.send(p, Component.text().append(Component.text("This player was added already, nothing changed. ")).append(Component.text("To remove players, use the /chunk removeplayer command.", NamedTextColor.GRAY)).build())
+
+        val isAlways = t == "always"
+        if ((isAlways && c.trustedAlways.contains(off.uniqueId)) || (!isAlways && c.trustedOnline.contains(off.uniqueId))) {
+            msg.send(p, Component.text().append(Component.text("This player is added already with this type, nothing changed. ")).append(Component.text("To remove players, use the /chunk removeplayer command.", NamedTextColor.GRAY)).build())
             return
         }
-        if (t == "always") { c.trustedAlways.add(off.uniqueId); db.addTrust(c.id!!, off.uniqueId, "ALWAYS") }
+
+        val isUpdate = if (isAlways) c.trustedOnline.remove(off.uniqueId) else c.trustedAlways.remove(off.uniqueId)
+        if (isUpdate) db.removeTrust(c.id!!, off.uniqueId)
+
+        if (isAlways) { c.trustedAlways.add(off.uniqueId); db.addTrust(c.id!!, off.uniqueId, "ALWAYS") }
         else { c.trustedOnline.add(off.uniqueId); db.addTrust(c.id!!, off.uniqueId, "WHILE_ONLINE") }
-        val desc = if (t == "always") "They aren't affected by claim rules anymore, even when you're not online." else "While you're online, they aren't affected by claim rules anymore."
-        msg.send(p, Component.text().append(Component.text("Added ")).append(msg.head(n)).append(Component.space()).append(Component.text(n, NamedTextColor.WHITE, TextDecoration.BOLD)).append(Component.text(" to your claim. ")).append(Component.text(desc, NamedTextColor.GRAY)).build())
+
+        val verb = if (isUpdate) "Updated " else "Added "
+        val desc = if (isAlways) "They aren't affected by claim rules anymore, even when you're not online." else "While you're online, they aren't affected by claim rules anymore."
+        msg.send(p, Component.text().append(Component.text(verb)).append(msg.head(n)).append(Component.space()).append(Component.text(n, NamedTextColor.WHITE, TextDecoration.BOLD)).append(Component.text(" in your claim. ")).append(Component.text(desc, NamedTextColor.GRAY)).build())
 
         // Update visuals for everyone in the claim and the target if they are online
         finishActionForClaim(c)
