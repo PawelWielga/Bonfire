@@ -64,14 +64,11 @@ class ClaimService(
                         .append(Component.text("Keep playing to earn more chunks and claims.", NamedTextColor.GRAY)).build())
                 } else {
                     val id = db.createClaim(p.uniqueId); val pos = ChunkPos(w, k)
-
-                    // Load defaults from config
                     val defBreak = plugin.config.getBoolean("default-rules.allowBlockBreak", false)
                     val defInteract = plugin.config.getBoolean("default-rules.allowBlockInteract", false)
                     val defEntity = plugin.config.getString("default-rules.allowEntityInteract", "false")!!
 
                     val claim = Claim(id, p.uniqueId, mutableSetOf(pos), defBreak, defInteract, defEntity)
-
                     registry.add(claim); db.addChunk(id, pos); db.updateRules(claim)
                     migrationService.processChunk(ch)
                     blueMapService?.updateClaim(claim)
@@ -88,16 +85,10 @@ class ClaimService(
     fun tryUnclaim(p: Player) {
         val ch = p.location.chunk; val pos = ChunkPos(ch.world.uid, ch.chunkKey); val c = registry.getAt(pos.worldUuid, pos.chunkKey) ?: return
         if (c.chunks.size <= 1) {
-            val wid = c.chunks.first().worldUuid; val id = c.id!!
-            db.deleteClaim(id); registry.remove(c)
-            db.removeFromQueue(pos.worldUuid, pos.chunkKey)
-            blueMapService?.removeClaim(id, wid)
+            handleClaimRemoval(c)
             msg.send(p, Component.text("Successfully unclaimed this chunk and deleted the claim."))
-            finishAction(p, null)
         } else if (isConnected(c, pos)) {
-            c.chunks.remove(pos); db.removeChunk(c.id!!, pos)
-            db.removeFromQueue(pos.worldUuid, pos.chunkKey)
-            blueMapService?.updateClaim(c)
+            handleChunkUnclaim(c, pos)
             msg.send(p, Component.text("Successfully unclaimed this chunk and removed it from your claim."))
             finishAction(p, null)
         } else {
@@ -109,19 +100,8 @@ class ClaimService(
      * Set a new owner for a claim (OP-only)
      */
     fun adminSetOwner(p: Player, newOwnerName: String) {
-        val chunk = p.location.chunk
-        val claim = registry.getAt(chunk)
-
-        if (claim == null) {
-            msg.send(p, Component.text("Nothing changed, you aren't inside a claimed chunk."))
-            return
-        }
-
-        val offline = Bukkit.getOfflinePlayers().find { it.name?.equals(newOwnerName, true) == true }
-        if (offline == null) {
-            msg.send(p, Component.text("Nothing changed, that player wasn't found on the server."))
-            return
-        }
+        val claim = registry.getAt(p.location.chunk) ?: run { msg.send(p, Component.text("Nothing changed, you aren't inside a claimed chunk.")); return }
+        val offline = Bukkit.getOfflinePlayers().find { it.name?.equals(newOwnerName, true) == true } ?: run { msg.send(p, Component.text("Nothing changed, that player wasn't found on the server.")); return }
 
         val oldOwnerId = claim.owner
         claim.owner = offline.uniqueId
@@ -129,7 +109,6 @@ class ClaimService(
         blueMapService?.updateClaim(claim)
 
         msg.send(p, Component.text("Successfully transferred the ownership of this claim to ${offline.name}."))
-
         finishActionForClaim(claim)
         Bukkit.getPlayer(oldOwnerId)?.let { visualService.updateValues(it) }
     }
@@ -138,54 +117,22 @@ class ClaimService(
      * Remove a claim (OP-only)
      */
     fun adminRemoveClaim(p: Player) {
-        val chunk = p.location.chunk
-        val claim = registry.getAt(chunk)
-
-        if (claim == null) {
-            msg.send(p, Component.text("Nothing changed, you aren't inside a claim."))
-            return
-        }
-
-        val wid = claim.chunks.first().worldUuid
-        val id = claim.id!!
-
-        db.deleteClaim(id)
-        registry.remove(claim)
-        claim.chunks.forEach { db.removeFromQueue(it.worldUuid, it.chunkKey) }
-        blueMapService?.removeClaim(id, wid)
-
+        val claim = registry.getAt(p.location.chunk) ?: run { msg.send(p, Component.text("Nothing changed, you aren't inside a claim.")); return }
+        handleClaimRemoval(claim)
         msg.send(p, Component.text("Successfully removed the claim and unclaimed all chunks."))
-        finishAction(p, null)
-
-        Bukkit.getOnlinePlayers().forEach { online ->
-            if (claim.chunks.contains(ChunkPos(online.world.uid, online.location.chunk.chunkKey))) {
-                playerListener.updateCache(online)
-                visualService.updateValues(online)
-                msg.unclaimedBar(online)
-            }
-        }
     }
 
     /**
      * Unclaim a chunk (OP-only)
      */
     fun adminUnclaimChunk(p: Player) {
-        val chunk = p.location.chunk
-        val pos = ChunkPos(chunk.world.uid, chunk.chunkKey)
-        val claim = registry.getAt(chunk)
-
-        if (claim == null) {
-            msg.send(p, Component.text("Nothing changed, you are not inside a claim."))
-            return
-        }
+        val chunk = p.location.chunk; val pos = ChunkPos(chunk.world.uid, chunk.chunkKey); val claim = registry.getAt(chunk) ?: run { msg.send(p, Component.text("Nothing changed, you are not inside a claim.")); return }
 
         if (claim.chunks.size <= 1) {
-            adminRemoveClaim(p)
+            handleClaimRemoval(claim)
+            msg.send(p, Component.text("Successfully removed the claim and unclaimed all chunks."))
         } else if (isConnected(claim, pos)) {
-            claim.chunks.remove(pos)
-            db.removeChunk(claim.id!!, pos)
-            db.removeFromQueue(pos.worldUuid, pos.chunkKey)
-            blueMapService?.updateClaim(claim)
+            handleChunkUnclaim(claim, pos)
             msg.send(p, Component.text("Successfully unclaimed this chunk as an operator."))
             finishAction(p, null)
         } else {
@@ -197,82 +144,13 @@ class ClaimService(
      * Remove all claims owned by a player (OP-only)
      */
     fun adminRemoveAll(p: Player, targetName: String) {
-        val offline = Bukkit.getOfflinePlayers().find { it.name?.equals(targetName, true) == true }
-        if (offline == null) {
-            msg.send(p, Component.text("Nothing changed, that player wasn't found on the server."))
-            return
-        }
-
+        val offline = Bukkit.getOfflinePlayers().find { it.name?.equals(targetName, true) == true } ?: run { msg.send(p, Component.text("Nothing changed, that player wasn't found on the server.")); return }
         val targetClaims = registry.getAll().filter { it.owner == offline.uniqueId }
-        val count = targetClaims.size
 
-        if (count == 0) {
-            msg.send(p, Component.text("Nothing changed, this player has no claims."))
-            return
-        }
+        if (targetClaims.isEmpty()) { msg.send(p, Component.text("Nothing changed, this player has no claims.")); return }
 
-        targetClaims.forEach { claim ->
-            val wid = claim.chunks.first().worldUuid
-            val id = claim.id!!
-
-            db.deleteClaim(id)
-            registry.remove(claim)
-            claim.chunks.forEach { db.removeFromQueue(it.worldUuid, it.chunkKey) }
-            blueMapService?.removeClaim(id, wid)
-
-            Bukkit.getOnlinePlayers().forEach { online ->
-                if (claim.chunks.contains(ChunkPos(online.world.uid, online.location.chunk.chunkKey))) {
-                    playerListener.updateCache(online)
-                    visualService.updateValues(online)
-                    msg.unclaimedBar(online)
-                }
-            }
-        }
-
-        msg.send(p, Component.text("Successfully removed $count claims owned by ${offline.name} and unclaimed all chunks."))
-    }
-
-    /**
-     * Update cache, permissions and visuals for all players in the chunk
-     */
-    private fun finishAction(p: Player, ownerId: UUID?) {
-        val chunk = p.location.chunk
-        Bukkit.getOnlinePlayers().forEach { onlinePlayer ->
-            if (onlinePlayer.location.chunk == chunk) {
-                playerListener.updateCache(onlinePlayer)
-                visualService.updateValues(onlinePlayer)
-                if (ownerId != null) {
-                    msg.actionBar(onlinePlayer, Bukkit.getOfflinePlayer(ownerId).name ?: "Unknown")
-                } else {
-                    msg.unclaimedBar(onlinePlayer)
-                }
-            }
-        }
-    }
-
-    /**
-     * Update cache, permissions and visuals for all players in the entire claim
-     */
-    private fun finishActionForClaim(c: Claim) {
-        Bukkit.getOnlinePlayers().forEach { onlinePlayer ->
-            if (registry.getAt(onlinePlayer.location.chunk)?.id == c.id) {
-                playerListener.updateCache(onlinePlayer)
-                visualService.updateValues(onlinePlayer)
-                msg.actionBar(onlinePlayer, Bukkit.getOfflinePlayer(c.owner).name ?: "Unknown")
-            }
-        }
-    }
-
-    private fun isConnected(c: Claim, r: ChunkPos): Boolean {
-        val rem = c.chunks.filter { it != r }; if (rem.isEmpty()) return true
-        val start = rem.first(); val vis = mutableSetOf<ChunkPos>(); val q: Queue<ChunkPos> = LinkedList(); q.add(start); vis.add(start)
-        while (q.isNotEmpty()) {
-            val curr = q.poll(); val x = curr.chunkKey.toInt(); val z = (curr.chunkKey shr 32).toInt()
-            listOf(Chunk.getChunkKey(x+1,z), Chunk.getChunkKey(x-1,z), Chunk.getChunkKey(x,z+1), Chunk.getChunkKey(x,z-1)).forEach { k ->
-                val p = ChunkPos(curr.worldUuid, k); if (rem.contains(p) && vis.add(p)) q.add(p)
-            }
-        }
-        return vis.size == rem.size
+        targetClaims.forEach { handleClaimRemoval(it) }
+        msg.send(p, Component.text("Successfully removed ${targetClaims.size} claims owned by ${offline.name} and unclaimed all chunks."))
     }
 
     /**
@@ -290,8 +168,6 @@ class ClaimService(
             else -> ""
         }
         msg.send(p, Component.text().append(Component.text("Set $r to $v. ")).append(Component.text(desc, NamedTextColor.GRAY)).build())
-
-        // Refresh commands for the sender and visuals for everyone
         visualService.updateValues(p)
         finishActionForClaim(c)
     }
@@ -323,7 +199,6 @@ class ClaimService(
         val desc = if (isAlways) "They aren't affected by claim rules anymore, even when you're not online." else "While you're online, they aren't affected by claim rules anymore."
         msg.send(p, Component.text().append(Component.text(verb)).append(msg.head(n)).append(Component.space()).append(Component.text(n, NamedTextColor.WHITE, TextDecoration.BOLD)).append(Component.text(" in your claim. ")).append(Component.text(desc, NamedTextColor.GRAY)).build())
 
-        // Update visuals for everyone in the claim and the target if they are online
         finishActionForClaim(c)
         off.player?.let { visualService.updateValues(it) }
     }
@@ -337,7 +212,6 @@ class ClaimService(
         if (c.trustedAlways.remove(id) || c.trustedOnline.remove(id)) {
             db.removeTrust(c.id!!, id)
             msg.send(p, Component.text().append(Component.text("Removed ")).append(msg.head(n)).append(Component.space()).append(Component.text(n, NamedTextColor.WHITE, TextDecoration.BOLD)).append(Component.text(" from your claim.")).build())
-
             finishActionForClaim(c)
             Bukkit.getPlayer(id)?.let { visualService.updateValues(it) }
         }
@@ -353,27 +227,71 @@ class ClaimService(
 
         m.claims.drop(1).forEach { d ->
             val wid = d.chunks.first().worldUuid; val id = d.id!!
-
-            // Transfer Chunks
             db.moveChunks(id, main.id!!)
+            main.legacyIds.add(id); main.legacyIds.addAll(d.legacyIds)
+            db.addAlias(main.id!!, id); db.moveAliases(id, main.id!!)
 
-            // Register Aliases (Primary ID absorbs sub-IDs)
-            main.legacyIds.add(id)
-            main.legacyIds.addAll(d.legacyIds)
-            db.addAlias(main.id!!, id)
-            db.moveAliases(id, main.id!!)
-
-            // Cleanup deleted claim
             db.deleteClaim(id)
-            main.chunks.addAll(d.chunks)
-            main.trustedAlways.addAll(d.trustedAlways)
-            main.trustedOnline.addAll(d.trustedOnline)
-            registry.remove(d)
-            blueMapService?.removeClaim(id, wid)
+            main.chunks.addAll(d.chunks); main.trustedAlways.addAll(d.trustedAlways); main.trustedOnline.addAll(d.trustedOnline)
+            registry.remove(d); blueMapService?.removeClaim(id, wid)
         }
         blueMapService?.updateClaim(main)
         msg.send(p, Component.text("Successfully merged your claims.")); finishAction(p, main.owner)
         finishActionForClaim(main)
+    }
+
+    private fun handleClaimRemoval(c: Claim) {
+        val wid = c.chunks.first().worldUuid; val id = c.id!!
+        db.deleteClaim(id); registry.remove(c)
+        c.chunks.forEach { db.removeFromQueue(it.worldUuid, it.chunkKey) }
+        blueMapService?.removeClaim(id, wid)
+        refreshPlayersAfterRemoval(c)
+    }
+
+    private fun handleChunkUnclaim(c: Claim, pos: ChunkPos) {
+        c.chunks.remove(pos); db.removeChunk(c.id!!, pos)
+        db.removeFromQueue(pos.worldUuid, pos.chunkKey)
+        blueMapService?.updateClaim(c)
+    }
+
+    private fun refreshPlayersAfterRemoval(c: Claim) {
+        Bukkit.getOnlinePlayers().forEach { online ->
+            if (c.chunks.contains(ChunkPos(online.world.uid, online.location.chunk.chunkKey))) {
+                playerListener.updateCache(online); visualService.updateValues(online)
+                msg.unclaimedBar(online)
+            }
+        }
+    }
+
+    private fun finishAction(p: Player, ownerId: UUID?) {
+        val chunk = p.location.chunk
+        Bukkit.getOnlinePlayers().forEach { online ->
+            if (online.location.chunk == chunk) {
+                playerListener.updateCache(online); visualService.updateValues(online)
+                if (ownerId != null) msg.actionBar(online, Bukkit.getOfflinePlayer(ownerId).name ?: "Unknown") else msg.unclaimedBar(online)
+            }
+        }
+    }
+
+    private fun finishActionForClaim(c: Claim) {
+        Bukkit.getOnlinePlayers().forEach { online ->
+            if (registry.getAt(online.location.chunk)?.id == c.id) {
+                playerListener.updateCache(online); visualService.updateValues(online)
+                msg.actionBar(online, Bukkit.getOfflinePlayer(c.owner).name ?: "Unknown")
+            }
+        }
+    }
+
+    private fun isConnected(c: Claim, r: ChunkPos): Boolean {
+        val rem = c.chunks.filter { it != r }; if (rem.isEmpty()) return true
+        val start = rem.first(); val vis = mutableSetOf<ChunkPos>(); val q: Queue<ChunkPos> = LinkedList(); q.add(start); vis.add(start)
+        while (q.isNotEmpty()) {
+            val curr = q.poll(); val x = curr.chunkKey.toInt(); val z = (curr.chunkKey shr 32).toInt()
+            listOf(Chunk.getChunkKey(x+1,z), Chunk.getChunkKey(x-1,z), Chunk.getChunkKey(x,z+1), Chunk.getChunkKey(x,z-1)).forEach { k ->
+                val p = ChunkPos(curr.worldUuid, k); if (rem.contains(p) && vis.add(p)) q.add(p)
+            }
+        }
+        return vis.size == rem.size
     }
 
     private fun findAdj(p: Player, w: UUID, x: Int, z: Int) = registry.getAll().filter { c -> c.owner == p.uniqueId && c.chunks.any { cp -> cp.worldUuid == w && listOf(Chunk.getChunkKey(x+1,z), Chunk.getChunkKey(x-1,z), Chunk.getChunkKey(x,z+1), Chunk.getChunkKey(x,z-1)).contains(cp.chunkKey) } }
