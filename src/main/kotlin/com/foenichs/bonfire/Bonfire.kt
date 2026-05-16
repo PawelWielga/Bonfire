@@ -20,6 +20,27 @@ class Bonfire : JavaPlugin() {
     private lateinit var visualService: VisualService
 
     override fun onEnable() {
+        // Version Check
+        Bukkit.getAsyncScheduler().runNow(this) { _ ->
+            try {
+                val conn = java.net.URI("https://api.modrinth.com/v2/project/bonfire/version").toURL().openConnection()
+                conn.setRequestProperty("User-Agent", "${pluginMeta.authors[0]}/${pluginMeta.name}/${pluginMeta.version}")
+                val json = conn.getInputStream().bufferedReader().use { it.readText() }
+                val versions = "\"version_number\":\"([^\"]+)\"".toRegex().findAll(json).map { it.groupValues[1] }.toList()
+                val latest = versions.firstOrNull() ?: return@runNow
+                val index = versions.indexOf(pluginMeta.version)
+
+                if (index == 0) {
+                    logger.info("Running on the latest version.")
+                } else if (index > 0) {
+                    logger.info("Currently running $index version(s) behind (${pluginMeta.version} -> $latest)")
+                    logger.info("Download the latest version from https://modrinth.com/plugin/bonfire")
+                } else {
+                    logger.info("Running on the latest development version.")
+                }
+            } catch (_: Exception) {}
+        }
+
         // Initialize Configuration
         saveDefaultConfig()
 
