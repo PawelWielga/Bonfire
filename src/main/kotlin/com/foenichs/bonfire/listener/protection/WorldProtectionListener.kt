@@ -1,5 +1,6 @@
 package com.foenichs.bonfire.listener.protection
 
+import com.destroystokyo.paper.event.entity.PhantomPreSpawnEvent
 import com.destroystokyo.paper.event.entity.PlayerNaturallySpawnCreaturesEvent
 import com.foenichs.bonfire.Bonfire
 import com.foenichs.bonfire.service.ProtectionService
@@ -248,6 +249,25 @@ class WorldProtectionListener(
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     fun onPlayerNaturallySpawnCreatures(event: PlayerNaturallySpawnCreaturesEvent) {
         val player = event.player
+        val chunk = player.location.chunk
+        val claim = registry.getAt(chunk) ?: return
+
+        if (
+            claim.allowEntityInteract == "false" ||
+            claim.allowEntityInteract == "onlyMounts"
+        ) {
+            if (!protection.canBypass(player, chunk)) {
+                event.isCancelled = true
+            }
+        }
+    }
+
+    /**
+     * Unauthorized players spawning phantoms in claims
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    fun onPhantomPreSpawn(event: PhantomPreSpawnEvent) {
+        val player = event.spawningEntity as? Player ?: return
         val chunk = player.location.chunk
         val claim = registry.getAt(chunk) ?: return
 
