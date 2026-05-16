@@ -13,9 +13,12 @@ class DatabaseManager(dataFolder: File) {
     init {
         if (!dataFolder.exists()) dataFolder.mkdirs()
         val s = connection.createStatement()
+        s.execute("CREATE TABLE IF NOT EXISTS bonfire_metadata (meta_key TEXT PRIMARY KEY, meta_value TEXT)")
         s.execute("CREATE TABLE IF NOT EXISTS claims (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_uuid TEXT NOT NULL, allow_block_break BOOLEAN DEFAULT 0, allow_block_interact BOOLEAN DEFAULT 0, allow_entity_interact TEXT DEFAULT 'false')")
         s.execute("CREATE TABLE IF NOT EXISTS claim_chunks (claim_id INTEGER, world_uuid TEXT NOT NULL, chunk_key INTEGER NOT NULL, FOREIGN KEY(claim_id) REFERENCES claims(id) ON DELETE CASCADE)")
         s.execute("CREATE TABLE IF NOT EXISTS trusted_players (claim_id INTEGER, player_uuid TEXT NOT NULL, trust_type TEXT NOT NULL, FOREIGN KEY(claim_id) REFERENCES claims(id) ON DELETE CASCADE)")
+        s.execute("CREATE TABLE IF NOT EXISTS claim_aliases (claim_id INTEGER, legacy_id INTEGER, FOREIGN KEY(claim_id) REFERENCES claims(id) ON DELETE CASCADE)")
+        s.execute("CREATE TABLE IF NOT EXISTS migration_queue (world_uuid TEXT NOT NULL, chunk_key INTEGER NOT NULL)")
     }
 
     fun loadAll(): List<Claim> {
@@ -32,20 +35,34 @@ class DatabaseManager(dataFolder: File) {
                 rs.getString("allow_entity_interact")
             )
             val crs = connection.createStatement().executeQuery("SELECT world_uuid, chunk_key FROM claim_chunks WHERE claim_id = $id")
-            while (crs.next()) c.chunks.add(
-                ChunkPos(
-                    UUID.fromString(crs.getString("world_uuid")),
-                    crs.getLong("chunk_key")
-                )
-            )
+            while (crs.next()) c.chunks.add(ChunkPos(UUID.fromString(crs.getString("world_uuid")), crs.getLong("chunk_key")))
+
             val trs = connection.createStatement().executeQuery("SELECT player_uuid, trust_type FROM trusted_players WHERE claim_id = $id")
             while (trs.next()) {
                 val u = UUID.fromString(trs.getString("player_uuid"))
                 if (trs.getString("trust_type") == "ALWAYS") c.trustedAlways.add(u) else c.trustedOnline.add(u)
             }
+
+            val ars = connection.createStatement().executeQuery("SELECT legacy_id FROM claim_aliases WHERE claim_id = $id")
+            while (ars.next()) c.legacyIds.add(ars.getInt("legacy_id"))
+
             claims.add(c)
         }
         return claims
+    }
+
+    fun getMetadata(key: String): String? {
+        val ps = connection.prepareStatement("SELECT meta_value FROM bonfire_metadata WHERE meta_key = ?")
+        ps.setString(1, key)
+        val rs = ps.executeQuery()
+        return if (rs.next()) rs.getString("meta_value") else null
+    }
+
+    fun setMetadata(key: String, value: String) {
+        val ps = connection.prepareStatement("INSERT OR REPLACE INTO bonfire_metadata (meta_key, meta_value) VALUES (?, ?)")
+        ps.setString(1, key)
+        ps.setString(2, value)
+        ps.executeUpdate()
     }
 
     fun createClaim(owner: UUID): Int {
@@ -91,5 +108,43 @@ class DatabaseManager(dataFolder: File) {
         ps.setInt(2, id)
         ps.executeUpdate()
     }
+
+    fun addAlias(id: Int, legacyId: Int) {
+        val ps = connection.prepareStatement("INSERT INTO claim_aliases (claim_id, legacy_id) VALUES (?, ?)")
+        ps.setInt(1, id)
+        ps.setInt(2, legacyId)
+        ps.executeUpdate()
+    }
+
+    fun moveAliases(fromId: Int, toId: Int) {
+        val ps = connection.prepareStatement("UPDATE claim_aliases SET claim_id = ? WHERE claim_id = ?")
+        ps.setInt(1, toId)
+        ps.setInt(2, fromId)
+        ps.executeUpdate()
+    }
+
+    fun getQueueSize(): Int {
+        val rs = connection.createStatement().executeQuery("SELECT COUNT(*) FROM migration_queue")
+        return if (rs.next()) rs.getInt(1) else 0
+    }
+
+    fun isChunkInQueue(worldUuid: UUID, chunkKey: Long): Boolean {
+        val ps = connection.prepareStatement("SELECT 1 FROM migration_queue WHERE world_uuid = ? AND chunk_key = ?")
+        ps.setString(1, worldUuid.toString())
+        ps.setLong(2, chunkKey)
+        return ps.executeQuery().next()
+    }
+
+    fun fillMigrationQueue() {
+        connection.createStatement().execute("INSERT INTO migration_queue (world_uuid, chunk_key) SELECT world_uuid, chunk_key FROM claim_chunks")
+    }
+
+    fun removeFromQueue(worldUuid: UUID, chunkKey: Long) {
+        val ps = connection.prepareStatement("DELETE FROM migration_queue WHERE world_uuid = ? AND chunk_key = ?")
+        ps.setString(1, worldUuid.toString())
+        ps.setLong(2, chunkKey)
+        ps.executeUpdate()
+    }
+
     fun close() = connection.close()
 }

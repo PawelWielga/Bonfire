@@ -10,5 +10,6 @@ data class Claim(
     var allowBlockInteract: Boolean = false,
     var allowEntityInteract: String = "false",
     val trustedAlways: MutableSet<UUID> = mutableSetOf(),
-    val trustedOnline: MutableSet<UUID> = mutableSetOf()
+    val trustedOnline: MutableSet<UUID> = mutableSetOf(),
+    val legacyIds: MutableSet<Int> = mutableSetOf()
 )

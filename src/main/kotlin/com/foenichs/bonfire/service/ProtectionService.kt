@@ -34,7 +34,13 @@ class ProtectionService(private val registry: ClaimRegistry) {
      */
     fun isOrigin(entity: Entity?, chunk: Chunk): Boolean {
         val claim = registry.getAt(chunk) ?: return false
-        return entity?.scoreboardTags?.contains("bonfire_origin_${claim.id}") == true
+        val tags = entity?.scoreboardTags ?: return false
+
+        // Current ID
+        if (tags.contains("bonfire_origin_${claim.id}")) return true
+
+        // Any of the legacy IDs
+        return claim.legacyIds.any { legacyId -> tags.contains("bonfire_origin_$legacyId") }
     }
 
     /**

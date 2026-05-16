@@ -53,6 +53,7 @@ class Bonfire : JavaPlugin() {
         val limitService = LimitService(config, registry)
         protectionService = ProtectionService(registry)
         visualService = VisualService(this, registry, protectionService, limitService)
+        val migrationService = MigrationService(this, db, registry, protectionService)
 
         // Initialize BlueMap Service (optional)
         val blueMapService = if (Bukkit.getPluginManager().isPluginEnabled("BlueMap")) {
@@ -65,7 +66,7 @@ class Bonfire : JavaPlugin() {
         val playerListener = PlayerListener(this, registry, messenger, visualService)
 
         // Initialize Logic Service
-        val claimService = ClaimService(registry, db, messenger, limitService, visualService, playerListener, blueMapService, this)
+        val claimService = ClaimService(registry, db, messenger, limitService, visualService, playerListener, blueMapService, migrationService, this)
 
         // Register Command Tree
         lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) { event ->
