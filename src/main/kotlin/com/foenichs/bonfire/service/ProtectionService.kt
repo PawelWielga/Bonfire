@@ -57,8 +57,20 @@ class ProtectionService(private val registry: ClaimRegistry) {
      */
     fun isWorldActionAllowed(from: Chunk, to: Chunk): Boolean {
         val claimFrom = registry.getAt(from)
-        val claimTo = registry.getAt(to)
-        return claimFrom?.id == claimTo?.id
+        val claimTo = registry.getAt(to) ?: return true
+        if (claimFrom?.id == claimTo.id) return true
+
+        if (claimFrom != null) {
+            val ownerTo = claimTo.owner
+            val ownerFrom = claimFrom.owner
+            if (ownerTo == ownerFrom) return true
+
+            // Always allowed for claims of added players
+            if (claimTo.trustedAlways.contains(ownerFrom)) return true
+            if (claimTo.trustedOnline.contains(ownerFrom) && Bukkit.getPlayer(ownerTo)?.isOnline == true) return true
+        }
+
+        return false
     }
 
     /**
