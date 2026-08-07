@@ -29,6 +29,12 @@ class ClaimService(
     data class PendingMerge(val worldUuid: UUID, val chunkKey: Long, val claims: List<Claim>, val time: Long)
     private val pending = mutableMapOf<UUID, PendingMerge>()
 
+    fun verifyPermissions(p: Player): Boolean {
+        visualService.updateValues(p)
+        val claim = registry.getAt(p.location.chunk)
+        return claim != null && claim.owner == p.uniqueId
+    }
+
     /**
      * Claiming a chunk and either adding it to a claim or creating a new claim
      */
@@ -83,6 +89,7 @@ class ClaimService(
      * Unclaiming a chunk and either removing it from the claim or deleting the claim
      */
     fun tryUnclaim(p: Player) {
+        if (!verifyPermissions(p)) { msg.sendNoAccess(p); return }
         val ch = p.location.chunk; val pos = ChunkPos(ch.world.uid, ch.chunkKey); val c = registry.getAt(pos.worldUuid, pos.chunkKey) ?: return
         if (c.chunks.size <= 1) {
             handleClaimRemoval(c)
@@ -157,6 +164,7 @@ class ClaimService(
      * Change a claim rule
      */
     fun setRule(p: Player, r: String, v: String) {
+        if (!verifyPermissions(p)) { msg.sendNoAccess(p); return }
         val c = registry.getAt(p.location.chunk) ?: return
         if (r == "allowEntityInteract" && v != "true" && v != "false" && v != "onlyMounts") return
         when(r) { "allowBlockBreak" -> c.allowBlockBreak = v.toBoolean(); "allowBlockInteract" -> c.allowBlockInteract = v.toBoolean(); "allowEntityInteract" -> c.allowEntityInteract = v }
@@ -176,6 +184,7 @@ class ClaimService(
      * Add players to claims
      */
     fun addTrust(p: Player, n: String, t: String) {
+        if (!verifyPermissions(p)) { msg.sendNoAccess(p); return }
         val c = registry.getAt(p.location.chunk) ?: return
         val off = Bukkit.getOfflinePlayers().find { it.name?.equals(n, true) == true }
         if (off == null || (!off.hasPlayedBefore() && !off.isOnline)) {
@@ -207,6 +216,7 @@ class ClaimService(
      * Remove added players from claims
      */
     fun removeTrust(p: Player, n: String) {
+        if (!verifyPermissions(p)) { msg.sendNoAccess(p); return }
         val c = registry.getAt(p.location.chunk) ?: return
         val id = Bukkit.getOfflinePlayers().find { it.name?.equals(n, true) == true }?.uniqueId ?: return
         if (c.trustedAlways.remove(id) || c.trustedOnline.remove(id)) {

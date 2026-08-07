@@ -36,8 +36,10 @@ class PlayerListener(
      */
     @EventHandler
     fun onTeleport(event: PlayerTeleportEvent) {
-        val to = event.to
-        handlePlayerUpdate(event.player, to, true)
+        val p = event.player
+        Bukkit.getScheduler().runTask(plugin, Runnable {
+            handlePlayerUpdate(p, p.location, true)
+        })
     }
 
     /**
