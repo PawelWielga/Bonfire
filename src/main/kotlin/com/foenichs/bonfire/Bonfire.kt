@@ -18,6 +18,7 @@ class Bonfire : JavaPlugin() {
     private lateinit var registry: ClaimRegistry
     private lateinit var protectionService: ProtectionService
     private lateinit var visualService: VisualService
+    private var mapServices: List<ClaimMapService> = emptyList()
 
     override fun onEnable() {
         // Version Check
@@ -55,18 +56,26 @@ class Bonfire : JavaPlugin() {
         visualService = VisualService(this, registry, protectionService, limitService)
         val migrationService = MigrationService(this, db, registry, protectionService)
 
-        // Initialize BlueMap Service (optional)
-        val blueMapService = if (Bukkit.getPluginManager().isPluginEnabled("BlueMap")) {
-            BlueMapService(this, registry)
-        } else {
-            null
+        // Initialize optional map integrations
+        mapServices = buildList {
+            if (Bukkit.getPluginManager().isPluginEnabled("BlueMap")) {
+                createSafeClaimMapService(logger, "BlueMap") {
+                    BlueMapService(this@Bonfire, registry)
+                }?.let(::add)
+            }
+            if (Bukkit.getPluginManager().isPluginEnabled("squaremap")) {
+                createSafeClaimMapService(logger, "squaremap") {
+                    SquaremapService(this@Bonfire, registry)
+                }?.let(::add)
+            }
         }
+        mapServices.forEach { it.refreshAll() }
 
         // Initialize Listener first (ClaimService needs it for cache updates)
         val playerListener = PlayerListener(this, registry, messenger, visualService)
 
         // Initialize Logic Service
-        val claimService = ClaimService(registry, db, messenger, limitService, visualService, playerListener, blueMapService, migrationService, this)
+        val claimService = ClaimService(registry, db, messenger, limitService, visualService, playerListener, mapServices, migrationService, this)
 
         // Register Command Tree
         lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) { event ->
@@ -74,7 +83,7 @@ class Bonfire : JavaPlugin() {
             BonfireCommand({
                 reloadConfig()
                 limitService.updateConfig(config)
-                blueMapService?.refreshAll()
+                mapServices.forEach { it.refreshAll() }
             }, claimService).register(event.registrar())
         }
 
@@ -98,6 +107,9 @@ class Bonfire : JavaPlugin() {
     }
 
     override fun onDisable() {
+        mapServices.forEach { it.shutdown() }
+        mapServices = emptyList()
+
         // Ensure database connection is closed safely
         if (::db.isInitialized) {
             db.close()
